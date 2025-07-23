@@ -9,220 +9,302 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
   <style>
-    /* ... [STYLE SAMA DENGAN SEBELUMNYA, TIDAK DIULANG DI SINI UNTUK KEJELASAN] ... */
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html,body{height:100%; font-family:sans-serif;}
+    body{display:flex;flex-direction:column;}
+    .header{display:grid;grid-template-columns:auto 1fr auto;align-items:center;padding:6px 10px;background:#444;color:white;height:60px;flex-shrink:0;}
+    .logo{height:36px;}
+    .title{text-align:center;font-size:13px;font-weight:bold;line-height:1.3;}
+    .main{flex:1;position:relative;}
+    #map{width:100%;height:100%;}
+    .filters{position:absolute;top:50%;left:10px;transform:translateY(-50%);background:rgba(255,255,255,0.95);padding:10px;border-radius:6px;font-size:13px;z-index:999;max-width:90vw;box-shadow:0 1px 6px rgba(0,0,0,0.2);}
+    .filters h4{margin:10px 0 6px;font-size:14px;}
+    .filters label{display:block;margin-bottom:4px;}
+    .export-button{padding:6px 10px;background:#444;color:white;border:none;border-radius:4px;font-size:12px;cursor:pointer;width:100%;margin-bottom:6px;}
+    .dropdown{position:relative;width:100%;}
+    .dropdown-content{display:none;position:absolute;background:white;min-width:140px;box-shadow:0px 4px 8px rgba(0,0,0,0.1);z-index:1000;border:1px solid #ccc;border-radius:4px;}
+    .dropdown-content a{color:black;padding:8px 10px;display:block;font-size:13px;text-decoration:none;}
+    .dropdown-content a:hover{background:#f0f0f0;}
+    .dropdown:hover .dropdown-content{display:block;}
+    @media print {
+      .header,.filters{display:none!important;}
+      #map{height:100vh!important;width:100vw!important;}
+    }
+    #login-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);color:white;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:10000;}
+    #login-overlay input{padding:10px;font-size:16px;border-radius:6px;border:none;margin-top:10px;}
+    #login-overlay button{margin-top:12px;padding:8px 16px;font-size:14px;background:#444;color:white;border:none;border-radius:6px;cursor:pointer;}
+    #login-error{color:red;margin-top:10px;display:none;}
   </style>
 </head>
 <body>
-  <!-- ... [BODY DAN FILTER SAMA SEPERTI SEBELUMNYA] ... -->
+  <div id="login-overlay">
+    <h2>Masukkan Password</h2>
+    <input id="password-input" type="password" placeholder="Password" />
+    <button onclick="checkPassword()">Masuk</button>
+    <div id="login-error">Password salah</div>
+  </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet-pip@latest/leaflet-pip.min.js"></script>
-  <script>
-    const map = L.map('map', { attributionControl: false }).setView([-2.5, 117], 5);
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom:18 }).addTo(map);
-    const hotspotLayer = L.layerGroup().addTo(map);
+  <div class="header">
+    <img src="logo-kiri.png" class="logo" alt="Logo Kiri">
+    <div class="title">
+      DIREKTORAT PENGENDALIAN KEBAKARAN LAHAN<br>
+      <small>Peta Hotspot Level Confidence Medium - High selama 3 hari</small>
+    </div>
+    <img src="logo-kanan.png" class="logo" alt="Logo Kanan">
+  </div>
 
-    let pbphLayer = null, kebunLayer = null, gambutLayer = null;
+  <div class="main">
+    <div class="filters">
+      <h4>Confidence Level</h4>
+      <label><input type="checkbox" class="confidence-filter" value="medium" checked> 🟡 Medium</label>
+      <label><input type="checkbox" class="confidence-filter" value="high" checked> 🔴 High</label>
 
-    fetch('provinsi.geojson').then(r=>r.json()).then(g => L.geoJSON(g, { style:{color:"black",weight:1,fillOpacity:0} }).addTo(map));
+      <h4>Tanggal</h4>
+      <div id="tanggal-filter">Memuat...</div>
 
-    fetch('PBPH.geojson').then(r=>r.json()).then(g=>{
-      pbphLayer = L.geoJSON(g, {
-        style:{color:"blue",weight:1,fillOpacity:0},
-        onEachFeature:(f,l)=>l.bindPopup(Object.entries(f.properties).map(kv=>`<b>${kv[0]}</b>: ${kv[1]}`).join('<br>'))
-      });
+      <h4>Sumber</h4>
+      <div id="sumber-filter">Memuat...</div>
+
+      <h4>Layer Tambahan</h4>
+      <label><input type="checkbox" id="pbph-toggle"> PBPH (garis biru)</label>
+      <label><input type="checkbox" id="kebun-toggle"> Kebun (garis hijau)</label>
+      <label><input type="checkbox" id="gambut-toggle"> Gambut (garis coklat)</label>
+
+      <h4>Download Data</h4>
+      <div class="dropdown">
+        <button class="export-button">⬇️ Pilih Format</button>
+        <div class="dropdown-content">
+          <a href="#" onclick="exportTable('csv')">📄 CSV</a>
+          <a href="#" onclick="exportTable('xlsx')">📄 XLSX</a>
+          <a href="#" onclick="exportTable('pdf')">📄 PDF</a>
+        </div>
+      </div>
+      <button class="export-button" onclick="exportHotspotPerusahaan()">🏭 Hotspot di Perusahaan</button>
+      <button class="export-button" onclick="window.print()">🖨️ Cetak Peta</button>
+    </div>
+    <div id="map"></div>
+  </div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-pip@latest/leaflet-pip.min.js"></script>
+<script>
+  const map = L.map('map', { attributionControl: false }).setView([-2.5, 117], 5);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom:18 }).addTo(map);
+  const hotspotLayer = L.layerGroup().addTo(map);
+
+  let pbphLayer = null, kebunLayer = null, gambutLayer = null;
+
+  fetch('provinsi.geojson').then(r=>r.json()).then(g => L.geoJSON(g, { style:{color:"black",weight:1,fillOpacity:0} }).addTo(map));
+
+  fetch('PBPH.geojson').then(r=>r.json()).then(g=>{
+    pbphLayer = L.geoJSON(g, {
+      style:{color:"blue",weight:1,fillOpacity:0},
+      onEachFeature:(f,l)=>l.bindPopup(Object.entries(f.properties).map(kv=>`<b>${kv[0]}</b>: ${kv[1]}`).join('<br>'))
     });
-    fetch('kebun.geojson').then(r=>r.json()).then(g=>{
-      kebunLayer = L.geoJSON(g, {
-        style:{color:"green",weight:2,fillOpacity:0.1},
-        onEachFeature:(f,l)=>l.bindPopup(Object.entries(f.properties).map(kv=>`<b>${kv[0]}</b>: ${kv[1]}`).join('<br>'))
-      });
+  });
+
+  fetch('kebun.geojson').then(r=>r.json()).then(g=>{
+    kebunLayer = L.geoJSON(g, {
+      style:{color:"green",weight:2,fillOpacity:0.1},
+      onEachFeature:(f,l)=>l.bindPopup(Object.entries(f.properties).map(kv=>`<b>${kv[0]}</b>: ${kv[1]}`).join('<br>'))
     });
-    fetch('gambut.geojson').then(r=>r.json()).then(g=>{
-      gambutLayer = L.geoJSON(g, {
-        style:{color:"brown",weight:2,fillOpacity:0.1},
-        onEachFeature:(f,l)=>l.bindPopup(Object.entries(f.properties).map(kv=>`<b>${kv[0]}</b>: ${kv[1]}`).join('<br>'))
-      });
+  });
+
+  fetch('gambut.geojson').then(r=>r.json()).then(g=>{
+    gambutLayer = L.geoJSON(g, {
+      style:{color:"brown",weight:2,fillOpacity:0.1},
+      onEachFeature:(f,l)=>l.bindPopup(Object.entries(f.properties).map(kv=>`<b>${kv[0]}</b>: ${kv[1]}`).join('<br>'))
     });
+  });
 
-    document.getElementById('pbph-toggle').addEventListener('change', e => e.target.checked ? pbphLayer?.addTo(map) : map.removeLayer(pbphLayer));
-    document.getElementById('kebun-toggle').addEventListener('change', e => e.target.checked ? kebunLayer?.addTo(map) : map.removeLayer(kebunLayer));
-    document.getElementById('gambut-toggle').addEventListener('change', e => e.target.checked ? gambutLayer?.addTo(map) : map.removeLayer(gambutLayer));
+  document.getElementById('pbph-toggle').addEventListener('change', e => e.target.checked ? pbphLayer?.addTo(map) : map.removeLayer(pbphLayer));
+  document.getElementById('kebun-toggle').addEventListener('change', e => e.target.checked ? kebunLayer?.addTo(map) : map.removeLayer(kebunLayer));
+  document.getElementById('gambut-toggle').addEventListener('change', e => e.target.checked ? gambutLayer?.addTo(map) : map.removeLayer(gambutLayer));
+  const url = "https://opensheet.elk.sh/1Vce5YUId7cUZ29j8OEhdFSer26cszXgX3OSm5zoX1UI/Data%20Hotspot%20Nasional";
+  let rawData = [];
 
-    const url = "https://opensheet.elk.sh/1Vce5YUId7cUZ29j8OEhdFSer26cszXgX3OSm5zoX1UI/Data%20Hotspot%20Nasional";
-    let rawData = [];
+  function getLastThreeDates() {
+    const opt = {day:'2-digit',month:'long',year:'numeric'};
+    return [0,1,2].map(i => {
+      const d = new Date(); d.setDate(d.getDate()-i);
+      return d.toLocaleDateString('id-ID', opt);
+    });
+  }
 
-    function getLastThreeDates() {
-      const opt = {day:'2-digit',month:'long',year:'numeric'};
-      return [0,1,2].map(i => {
-        const d = new Date(); d.setDate(d.getDate()-i);
-        return d.toLocaleDateString('id-ID', opt);
-      });
-    }
+  function extractTanggal(tj) {
+    const p = tj.split(',')[1]?.trim().split(' ')||[];
+    return p.slice(0,3).join(' ');
+  }
 
-    function extractTanggal(tj) {
-      const p = tj.split(',')[1]?.trim().split(' ')||[];
-      return p.slice(0,3).join(' ');
-    }
+  function renderFilterTanggal() {
+    const div = document.getElementById("tanggal-filter");
+    div.innerHTML = '';
+    getLastThreeDates().forEach(t => {
+      div.innerHTML += `<label><input type="checkbox" class="tanggal-filter" value="${t}" checked> ${t}</label>`;
+    });
+  }
 
-    function renderFilterTanggal() {
-      const div = document.getElementById("tanggal-filter");
-      div.innerHTML = '';
-      getLastThreeDates().forEach(t => div.innerHTML += `<label><input type="checkbox" class="tanggal-filter" value="${t}" checked> ${t}</label>`);
-    }
+  function renderFilterSumber(data) {
+    const set = new Set(data.map(r=>r.Sumber?.trim()).filter(r=>r));
+    const div = document.getElementById("sumber-filter");
+    div.innerHTML = '';
+    Array.from(set).sort().forEach(s => {
+      div.innerHTML += `<label><input type="checkbox" class="sumber-filter" value="${s}" checked> ${s}</label>`;
+    });
+  }
 
-    function renderFilterSumber(data) {
-      const set = new Set(data.map(r=>r.Sumber?.trim()).filter(r=>r));
-      const div = document.getElementById("sumber-filter");
-      div.innerHTML = '';
-      Array.from(set).sort().forEach(s => div.innerHTML += `<label><input type="checkbox" class="sumber-filter" value="${s}" checked> ${s}</label>`);
-    }
-
-    function getSelectedFilters() {
-      return {
-        levels: [...document.querySelectorAll('.confidence-filter:checked')].map(cb=>cb.value),
-        tanggal: [...document.querySelectorAll('.tanggal-filter:checked')].map(cb=>cb.value),
-        sumber: [...document.querySelectorAll('.sumber-filter:checked')].map(cb=>cb.value)
-      };
-    }
-
-    function applyFilters() {
-      const {levels, tanggal, sumber} = getSelectedFilters();
-      hotspotLayer.clearLayers();
-      rawData.forEach(r => {
-        const lat = parseFloat(r.Latitude), lon = parseFloat(r.Longitude);
-        const conf = r.Confidence_Level?.toLowerCase();
-        const t = extractTanggal(r["Tanggal & Jam"]||"");
-        const s = r.Sumber?.trim();
-        if(!isNaN(lat)&&!isNaN(lon)&&levels.includes(conf)&&tanggal.includes(t)&&sumber.includes(s)) {
-          L.circleMarker([lat,lon],{radius:6,fillColor:conf==='high'?'red':'yellow',color:'#000',weight:1,opacity:0.5,fillOpacity:0.5})
-           .addTo(hotspotLayer)
-           .bindPopup(`<b>${r["Tanggal & Jam"]}</b><br>${r.Provinsi} - ${r["Kab/Kota"]}<br>Kecamatan: ${r.Kecamatan || ''}<br>Desa: ${r.Desa || ''}<br>Confidence: ${conf}<br>Sumber: ${s}<br>Koordinat: ${lat.toFixed(4)}, ${lon.toFixed(4)}<br><a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank">📍 Lihat di Google Maps</a>`);
-        }
-      });
-    }
-
-    function fetchAndRenderData() {
-      fetch(url).then(r=>r.json()).then(data=>{
-        rawData = data;
-        renderFilterTanggal();
-        renderFilterSumber(data);
-        applyFilters();
-        document.querySelectorAll('.filters input[type=checkbox]').forEach(cb=>cb.addEventListener('change',applyFilters));
-      });
-    }
-
-    function exportHotspotPerusahaan() {
-      const { levels, tanggal, sumber } = getSelectedFilters();
-      const filtered = rawData.filter(r => {
-        const conf = r.Confidence_Level?.toLowerCase();
-        const t = extractTanggal(r["Tanggal & Jam"]||"");
-        const s = r.Sumber?.trim();
-        return levels.includes(conf)&&tanggal.includes(t)&&sumber.includes(s);
-      });
-
-      const stats = [];
-
-      filtered.forEach(r => {
-        const lat = parseFloat(r.Latitude), lon = parseFloat(r.Longitude);
-        if(isNaN(lat)||isNaN(lon)) return;
-
-        let jenis = "", nama = "", inGambut = "Tidak";
-
-        if(pbphLayer){
-          const hit = leafletPip.pointInLayer([lon,lat], pbphLayer);
-          if(hit.length){
-            jenis = "PBPH";
-            nama = hit[0].feature.properties.Nama_Perusahaan || hit[0].feature.properties.Perusahaan || "—";
-          }
-        }
-
-        if(kebunLayer && !nama){
-          const hit = leafletPip.pointInLayer([lon,lat], kebunLayer);
-          if(hit.length){
-            jenis = "Perkebunan";
-            nama = hit[0].feature.properties.Nama_Perusahaan || hit[0].feature.properties.Perusahaan || "—";
-          }
-        }
-
-        if(gambutLayer){
-          const hit = leafletPip.pointInLayer([lon,lat], gambutLayer);
-          if(hit.length){
-            inGambut = "Ya";
-          }
-        }
-
-        if(nama){
-          stats.push([
-            nama,
-            jenis,
-            r.Confidence_Level?.toLowerCase()==='high'?1:0,
-            r.Confidence_Level?.toLowerCase()==='medium'?1:0,
-            r.Provinsi || "—",
-            extractTanggal(r["Tanggal & Jam"]||""),
-            inGambut
-          ]);
-        }
-      });
-
-      const merged = {};
-      stats.forEach(([nama, jenis, high, medium, prov, tgl, gambut]) => {
-        const key = `${nama}-${jenis}-${gambut}`;
-        if(!merged[key]){
-          merged[key] = {
-            nama, jenis, high:0, medium:0, provinsi: new Set(), tanggal: new Set(), gambut
-          };
-        }
-        merged[key].high += high;
-        merged[key].medium += medium;
-        merged[key].provinsi.add(prov);
-        merged[key].tanggal.add(tgl);
-      });
-
-      const rows = Object.values(merged).map(s => [
-        s.nama,
-        s.jenis,
-        s.high + s.medium,
-        s.high,
-        s.medium,
-        [...s.provinsi].join(', '),
-        [...s.tanggal].join(', '),
-        s.gambut
-      ]);
-
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-      doc.text("Hotspot di Perusahaan",14,16);
-      doc.autoTable({
-        startY:22,
-        head:[['Perusahaan','Jenis Perizinan','Total','High','Medium','Provinsi','Tanggal','Di Lokasi Gambut']],
-        body: rows,
-        styles:{ fontSize:8 }
-      });
-      doc.save("hotspot_perusahaan.pdf");
-    }
-
-    function checkPassword() {
-      const pw = document.getElementById('password-input').value;
-      if(pw==="karla") {
-        localStorage.setItem("hotspot_logged_in","true");
-        document.getElementById('login-overlay').style.display='none';
-        init();
-      } else {
-        document.getElementById('login-error').style.display='block';
-      }
-    }
-
-    function init() {
-      fetchAndRenderData();
-    }
-
-    window.onload = () => {
-      if(localStorage.getItem("hotspot_logged_in")==="true") {
-        document.getElementById('login-overlay').style.display='none';
-        init();
-      }
+  function getSelectedFilters() {
+    return {
+      levels: [...document.querySelectorAll('.confidence-filter:checked')].map(cb=>cb.value),
+      tanggal: [...document.querySelectorAll('.tanggal-filter:checked')].map(cb=>cb.value),
+      sumber: [...document.querySelectorAll('.sumber-filter:checked')].map(cb=>cb.value)
     };
-  </script>
+  }
+
+  function applyFilters() {
+    const {levels, tanggal, sumber} = getSelectedFilters();
+    hotspotLayer.clearLayers();
+    rawData.forEach(r => {
+      const lat = parseFloat(r.Latitude), lon = parseFloat(r.Longitude);
+      const conf = r.Confidence_Level?.toLowerCase();
+      const t = extractTanggal(r["Tanggal & Jam"]||"");
+      const s = r.Sumber?.trim();
+      if(!isNaN(lat)&&!isNaN(lon)&&levels.includes(conf)&&tanggal.includes(t)&&sumber.includes(s)) {
+        L.circleMarker([lat,lon],{
+          radius:6,
+          fillColor:conf==='high'?'red':'yellow',
+          color:'#000',
+          weight:1,
+          opacity:0.5,
+          fillOpacity:0.5
+        })
+        .addTo(hotspotLayer)
+        .bindPopup(`<b>${r["Tanggal & Jam"]}</b><br>${r.Provinsi} - ${r["Kab/Kota"]}<br>Kecamatan: ${r.Kecamatan || ''}<br>Desa: ${r.Desa || ''}<br>Confidence: ${conf}<br>Sumber: ${s}<br>Koordinat: ${lat.toFixed(4)}, ${lon.toFixed(4)}<br><a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank">📍 Lihat di Google Maps</a>`);
+      }
+    });
+  }
+
+  function fetchAndRenderData() {
+    fetch(url).then(r=>r.json()).then(data=>{
+      rawData = data;
+      renderFilterTanggal();
+      renderFilterSumber(data);
+      applyFilters();
+      document.querySelectorAll('.filters input[type=checkbox]').forEach(cb=>cb.addEventListener('change',applyFilters));
+    });
+  }
+    function exportHotspotPerusahaan() {
+    const { levels, tanggal, sumber } = getSelectedFilters();
+    const filtered = rawData.filter(r => {
+      const conf = r.Confidence_Level?.toLowerCase();
+      const t = extractTanggal(r["Tanggal & Jam"] || "");
+      const s = r.Sumber?.trim();
+      return levels.includes(conf) && tanggal.includes(t) && sumber.includes(s);
+    });
+
+    const stats = {};
+
+    filtered.forEach(r => {
+      const lat = parseFloat(r.Latitude), lon = parseFloat(r.Longitude);
+      if (isNaN(lat) || isNaN(lon)) return;
+
+      let izin = null;
+      let perusahaan = null;
+
+      if (pbphLayer) {
+        const hits = leafletPip.pointInLayer([lon, lat], pbphLayer);
+        if (hits.length) {
+          izin = "PBPH";
+          perusahaan = hits[0].feature.properties.Nama_Perusahaan || hits[0].feature.properties.Perusahaan || "—";
+        }
+      }
+
+      if (!izin && kebunLayer) {
+        const hits = leafletPip.pointInLayer([lon, lat], kebunLayer);
+        if (hits.length) {
+          izin = "Perkebunan";
+          perusahaan = hits[0].feature.properties.Nama_Perusahaan || hits[0].feature.properties.Perusahaan || "—";
+        }
+      }
+
+      if (!izin || !perusahaan) return;
+
+      let diGambut = "Tidak";
+      if (gambutLayer) {
+        const hitGambut = leafletPip.pointInLayer([lon, lat], gambutLayer);
+        if (hitGambut.length) {
+          diGambut = "Ya";
+        }
+      }
+
+      const prov = r.Provinsi || "—";
+      const tgl = extractTanggal(r["Tanggal & Jam"] || "—");
+
+      const key = perusahaan + "__" + izin + "__" + diGambut;
+
+      if (!stats[key]) {
+        stats[key] = {
+          perusahaan,
+          izin,
+          diGambut,
+          total: 0,
+          high: 0,
+          medium: 0,
+          provinsi: new Set(),
+          tanggal: new Set()
+        };
+      }
+
+      stats[key].total++;
+      const confKey = (r.Confidence_Level.toLowerCase() === 'high' ? 'high' : 'medium');
+      stats[key][confKey]++;
+      stats[key].provinsi.add(prov);
+      stats[key].tanggal.add(tgl);
+    });
+
+    const rows = Object.values(stats).map(s => [
+      s.perusahaan,
+      s.izin,
+      s.diGambut,
+      s.total,
+      s.high,
+      s.medium,
+      [...s.provinsi].join(', '),
+      [...s.tanggal].join(', ')
+    ]);
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.text("Hotspot di Perusahaan", 14, 16);
+    doc.autoTable({
+      startY: 22,
+      head: [['Perusahaan', 'Jenis Perizinan Berusaha', 'Di Lokasi Gambut', 'Total', 'High', 'Medium', 'Provinsi', 'Tanggal']],
+      body: rows,
+      styles: { fontSize: 8 }
+    });
+    doc.save("hotspot_perusahaan.pdf");
+  }
+
+  function checkPassword() {
+    const pw = document.getElementById('password-input').value;
+    if (pw === "karla") {
+      localStorage.setItem("hotspot_logged_in", "true");
+      document.getElementById('login-overlay').style.display = 'none';
+      init();
+    } else {
+      document.getElementById('login-error').style.display = 'block';
+    }
+  }
+
+  function init() {
+    fetchAndRenderData();
+  }
+
+  window.onload = () => {
+    if (localStorage.getItem("hotspot_logged_in") === "true") {
+      document.getElementById('login-overlay').style.display = 'none';
+      init();
+    }
+  };
+</script>
 </body>
 </html>
