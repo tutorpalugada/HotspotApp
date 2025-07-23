@@ -204,9 +204,6 @@
       }
     }
 
->
-  // ... seluruh kode di atas tetap ...
-
   function exportHotspotPerusahaan() {
     const { levels, tanggal, sumber } = getSelectedFilters();
     const filtered = rawData.filter(r => {
@@ -268,6 +265,8 @@
     });
     doc.save("hotspot_perusahaan.pdf");
   }
+
+
     function checkPassword() {
       const pw = document.getElementById('password-input').value;
       if(pw==="karla") {
