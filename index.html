@@ -204,68 +204,44 @@
       }
     }
 
-  function exportHotspotPerusahaan() {
-    const { levels, tanggal, sumber } = getSelectedFilters();
-    const filtered = rawData.filter(r => {
-      const conf = r.Confidence_Level?.toLowerCase();
-      const t = extractTanggal(r["Tanggal & Jam"]||"");
-      const s = r.Sumber?.trim();
-      return levels.includes(conf)&&tanggal.includes(t)&&sumber.includes(s);
-    });
-
-    const stats = [];
-    const seen = new Set();
-
-    filtered.forEach(r => {
-      const lat = parseFloat(r.Latitude), lon = parseFloat(r.Longitude);
-      if(isNaN(lat)||isNaN(lon)) return;
-
-      [pbphLayer, kebunLayer].forEach(layer => {
-        if(!layer) return;
-        const hit = leafletPip.pointInLayer([lon,lat], layer);
-        if(hit.length) {
-          const p = hit[0].feature.properties;
-          const nama = p.Nama_Perusahaan || p.Perusahaan || "—";
-          const prov = r.Provinsi || "—";
-          const tgl = extractTanggal(r["Tanggal & Jam"]||"");
-
-          const key = `${nama}|${prov}|${tgl}`;
-          if (!seen.has(key)) {
-            stats.push({
-              perusahaan: nama,
-              provinsi: prov,
-              tanggal: tgl,
-              total: 0,
-              high: 0,
-              medium: 0
-            });
-            seen.add(key);
-          }
-
-          const entry = stats.find(e => e.perusahaan === nama && e.provinsi === prov && e.tanggal === tgl);
-          if (entry) {
-            entry.total++;
-            const level = (r.Confidence_Level?.toLowerCase() === 'high') ? 'high' : 'medium';
-            entry[level]++;
-          }
-        }
-      });
-    });
-
-    const rows = stats.map((s, i) => [i+1, s.perusahaan, s.provinsi, s.tanggal, s.total, s.high, s.medium]);
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    doc.text("Hotspot di Perusahaan", 14, 16);
-    doc.autoTable({
-      startY: 22,
-      head: [['No', 'Perusahaan', 'Provinsi', 'Tanggal', 'Total', 'High', 'Medium']],
-      body: rows,
-      styles: { fontSize: 8 }
-    });
-    doc.save("hotspot_perusahaan.pdf");
+  if (stats.length === 0) {
+    alert("Tidak ada data hotspot yang terdeteksi di dalam wilayah perusahaan.");
+    return;
   }
 
+  const rows = stats.map((s, i) => [i + 1, s.perusahaan, s.provinsi, s.tanggal, s.total, s.high, s.medium]);
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.text("Hotspot di Perusahaan", 14, 16);
+  doc.autoTable({
+    startY: 22,
+    head: [['No', 'Perusahaan', 'Provinsi', 'Tanggal', 'Total', 'High', 'Medium']],
+    body: rows,
+    styles: { fontSize: 8 }
+  });
+
+  // Ambil tanggal terbaru dari data
+  const uniqueDates = stats.map(s => s.tanggal);
+  const latestDate = uniqueDates.sort((a, b) => new Date(b) - new Date(a))[0] || "TanpaTanggal";
+
+  // Cek layer aktif
+  const isPBPH = document.getElementById('pbph-toggle')?.checked;
+  const isKebun = document.getElementById('kebun-toggle')?.checked;
+
+  let filename = "Hotspot_Perusahaan.pdf"; // default
+
+  if (isPBPH && !isKebun) {
+    filename = `Indikasi Hotspot di PBPH ${latestDate}.pdf`;
+  } else if (!isPBPH && isKebun) {
+    filename = `Indikasi Hotspot di Kebun ${latestDate}.pdf`;
+  } else if (isPBPH && isKebun) {
+    filename = `Indikasi Hotspot di PBPH & Kebun ${latestDate}.pdf`;
+  } else {
+    filename = `Indikasi Hotspot ${latestDate}.pdf`;
+  }
+
+  doc.save(filename);
 
     function checkPassword() {
       const pw = document.getElementById('password-input').value;
