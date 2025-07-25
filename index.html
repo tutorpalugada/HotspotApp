@@ -212,7 +212,6 @@ function exportHotspotPerusahaan() {
     return levels.includes(conf) && tanggal.includes(t) && sumber.includes(s);
   });
 
-  // Pastikan layer ditambahkan ke peta untuk analisis spasial
   if (!map.hasLayer(pbphLayer) && pbphLayer) map.addLayer(pbphLayer);
   if (!map.hasLayer(kebunLayer) && kebunLayer) map.addLayer(kebunLayer);
 
@@ -231,7 +230,7 @@ function exportHotspotPerusahaan() {
       const hit = leafletPip.pointInLayer([lon, lat], layer);
       if (hit.length) {
         const p = hit[0].feature.properties;
-        const nama = p.Nama_Perusahaan || p.Perusahaan || p.Nama || p.nama || p.NAMA || `Perusahaan-${p.id || Math.random().toString(36).substring(2, 7)}`;
+        const nama = p.Nama_Perusahaan || `Perusahaan-${p.id || Math.random().toString(36).substring(2, 7)}`;
         const prov = r.Provinsi || "—";
         const tgl = extractTanggal(r["Tanggal & Jam"] || "");
 
@@ -256,11 +255,10 @@ function exportHotspotPerusahaan() {
         }
 
         matched = true;
-        break; // Hindari double-count antara PBPH dan Kebun
+        break;
       }
     }
 
-    // Debug log jika tidak cocok
     if (!matched) {
       console.warn(`❌ Tidak ditemukan di PBPH atau Kebun: ${lat}, ${lon}`);
     }
@@ -283,7 +281,6 @@ function exportHotspotPerusahaan() {
     styles: { fontSize: 8 }
   });
 
-  // Ambil tanggal terbaru dari raw data (bukan dari stats, agar lebih presisi)
   const allDates = filtered
     .map(r => r["Tanggal & Jam"])
     .filter(Boolean)
@@ -303,7 +300,6 @@ function exportHotspotPerusahaan() {
     });
   }
 
-  // Tentukan nama file berdasarkan layer aktif
   const isPBPH = document.getElementById('pbph-toggle')?.checked;
   const isKebun = document.getElementById('kebun-toggle')?.checked;
 
@@ -322,6 +318,7 @@ function exportHotspotPerusahaan() {
   console.log("📄 Menyimpan file PDF:", filename);
   doc.save(filename);
 }
+
 
 
     function checkPassword() {
