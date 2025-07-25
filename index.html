@@ -203,6 +203,68 @@
         doc.save("hotspot.pdf");
       }
     }
+function exportHotspotPerusahaan() {
+  const { levels, tanggal, sumber } = getSelectedFilters();
+  const filtered = rawData.filter(r => {
+    const conf = r.Confidence_Level?.toLowerCase();
+    const t = extractTanggal(r["Tanggal & Jam"] || "");
+    const s = r.Sumber?.trim();
+    return levels.includes(conf) && tanggal.includes(t) && sumber.includes(s);
+  });
+
+  // Pastikan layer ditambahkan ke peta untuk analisis spasial
+  if (!map.hasLayer(pbphLayer) && pbphLayer) map.addLayer(pbphLayer);
+  if (!map.hasLayer(kebunLayer) && kebunLayer) map.addLayer(kebunLayer);
+
+  const stats = [];
+  const seen = new Set();
+
+  filtered.forEach(r => {
+    const lat = parseFloat(r.Latitude), lon = parseFloat(r.Longitude);
+    if (isNaN(lat) || isNaN(lon)) return;
+
+    let matched = false;
+
+    for (const layer of [pbphLayer, kebunLayer]) {
+      if (!layer) continue;
+
+      const hit = leafletPip.pointInLayer([lon, lat], layer);
+      if (hit.length) {
+        const p = hit[0].feature.properties;
+        const nama = p.Nama_Perusahaan || p.Perusahaan || p.Nama || p.nama || p.NAMA || `Perusahaan-${p.id || Math.random().toString(36).substring(2, 7)}`;
+        const prov = r.Provinsi || "—";
+        const tgl = extractTanggal(r["Tanggal & Jam"] || "");
+
+        const key = `${nama}|${prov}|${tgl}`;
+        if (!seen.has(key)) {
+          stats.push({
+            perusahaan: nama,
+            provinsi: prov,
+            tanggal: tgl,
+            total: 0,
+            high: 0,
+            medium: 0
+          });
+          seen.add(key);
+        }
+
+        const entry = stats.find(e => e.perusahaan === nama && e.provinsi === prov && e.tanggal === tgl);
+        if (entry) {
+          entry.total++;
+          const level = (r.Confidence_Level?.toLowerCase() === 'high') ? 'high' : 'medium';
+          entry[level]++;
+        }
+
+        matched = true;
+        break; // Hindari double-count antara PBPH dan Kebun
+      }
+    }
+
+    // Debug log jika tidak cocok
+    if (!matched) {
+      console.warn(`❌ Tidak ditemukan di PBPH atau Kebun: ${lat}, ${lon}`);
+    }
+  });
 
   if (stats.length === 0) {
     alert("Tidak ada data hotspot yang terdeteksi di dalam wilayah perusahaan.");
@@ -221,27 +283,46 @@
     styles: { fontSize: 8 }
   });
 
-  // Ambil tanggal terbaru dari data
-  const uniqueDates = stats.map(s => s.tanggal);
-  const latestDate = uniqueDates.sort((a, b) => new Date(b) - new Date(a))[0] || "TanpaTanggal";
+  // Ambil tanggal terbaru dari raw data (bukan dari stats, agar lebih presisi)
+  const allDates = filtered
+    .map(r => r["Tanggal & Jam"])
+    .filter(Boolean)
+    .map(d => {
+      const datePart = d.split(",")[1]?.trim();
+      return new Date(datePart || d);
+    })
+    .filter(d => !isNaN(d));
 
-  // Cek layer aktif
+  let latestDateString = "TanpaTanggal";
+  if (allDates.length) {
+    const latestDate = new Date(Math.max(...allDates));
+    latestDateString = latestDate.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    });
+  }
+
+  // Tentukan nama file berdasarkan layer aktif
   const isPBPH = document.getElementById('pbph-toggle')?.checked;
   const isKebun = document.getElementById('kebun-toggle')?.checked;
 
-  let filename = "Hotspot_Perusahaan.pdf"; // default
+  let filename = "Hotspot_Perusahaan.pdf";
 
   if (isPBPH && !isKebun) {
-    filename = `Indikasi Hotspot di PBPH ${latestDate}.pdf`;
+    filename = `Indikasi Hotspot di PBPH ${latestDateString}.pdf`;
   } else if (!isPBPH && isKebun) {
-    filename = `Indikasi Hotspot di Kebun ${latestDate}.pdf`;
+    filename = `Indikasi Hotspot di Kebun ${latestDateString}.pdf`;
   } else if (isPBPH && isKebun) {
-    filename = `Indikasi Hotspot di PBPH & Kebun ${latestDate}.pdf`;
+    filename = `Indikasi Hotspot di PBPH & Kebun ${latestDateString}.pdf`;
   } else {
-    filename = `Indikasi Hotspot ${latestDate}.pdf`;
+    filename = `Indikasi Hotspot ${latestDateString}.pdf`;
   }
 
+  console.log("📄 Menyimpan file PDF:", filename);
   doc.save(filename);
+}
+
 
     function checkPassword() {
       const pw = document.getElementById('password-input').value;
