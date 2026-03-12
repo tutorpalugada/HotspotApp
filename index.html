@@ -80,32 +80,6 @@ width:100%;
 margin-bottom:6px;
 }
 
-.dropdown{
-position:relative;
-}
-
-.dropdown-content{
-display:none;
-position:absolute;
-background:white;
-min-width:140px;
-box-shadow:0 4px 8px rgba(0,0,0,0.1);
-z-index:1000;
-border:1px solid #ccc;
-border-radius:4px;
-}
-
-.dropdown-content a{
-color:black;
-padding:8px;
-display:block;
-text-decoration:none;
-}
-
-.dropdown:hover .dropdown-content{
-display:block;
-}
-
 #login-overlay{
 position:fixed;
 top:0;
@@ -187,16 +161,8 @@ DIREKTORAT PENGENDALIAN KEBAKARAN LAHAN<br>
 
 <h4>Download</h4>
 
-<div class="dropdown">
-<button class="export-button">⬇️ Pilih Format</button>
-<div class="dropdown-content">
-<a onclick="exportTable('csv')">CSV</a>
-<a onclick="exportTable('xlsx')">XLSX</a>
-<a onclick="exportTable('pdf')">PDF</a>
-</div>
-</div>
-
-<button class="export-button" onclick="exportHotspotPerusahaan()">Hotspot Perusahaan</button>
+<button class="export-button" onclick="exportHotspotPerusahaan()">Analisis Hotspot Perusahaan</button>
+<button class="export-button" onclick="cetakPDFPerusahaan()">Cetak PDF Perusahaan</button>
 
 </div>
 
@@ -224,11 +190,12 @@ let gambutLayer=null;
 
 let rawData=[];
 
+let hasilPerusahaan={};
+let totalHotspotAnalisis=0;
+
 const url="https://opensheet.elk.sh/1Vce5YUId7cUZ29j8OEhdFSer26cszXgX3OSm5zoX1UI/Data%20Hotspot%20Nasional";
 
 async function loadGeoJSON(file,style){
-
-try{
 
 const r = await fetch(file);
 const g = await r.json();
@@ -236,20 +203,17 @@ const g = await r.json();
 return L.geoJSON(g,{
 style:style,
 onEachFeature:(f,l)=>{
+
 let html='';
+
 for(let k in f.properties){
 html+=`<b>${k}</b>: ${f.properties[k]}<br>`;
 }
+
 l.bindPopup(html);
+
 }
 });
-
-}catch(e){
-
-console.error("Gagal load",file);
-return null;
-
-}
 
 }
 
@@ -341,7 +305,7 @@ radius:6,
 fillColor:conf==='high'?'red':'yellow',
 color:"#000",
 weight:1,
-fillOpacity:0.6
+fillOpacity:0.7
 })
 .addTo(hotspotLayer)
 .bindPopup(`
@@ -357,9 +321,8 @@ Confidence: ${conf}<br>
 
 async function fetchHotspot(){
 
-try{
-
 const r=await fetch(url);
+
 rawData=await r.json();
 
 renderFilterTanggal();
@@ -368,12 +331,6 @@ applyFilters();
 
 document.querySelectorAll(".filters input")
 .forEach(e=>e.addEventListener("change",applyFilters));
-
-}catch(e){
-
-alert("Gagal memuat data hotspot");
-
-}
 
 }
 
@@ -403,60 +360,118 @@ e.target.checked?gambutLayer.addTo(map):map.removeLayer(gambutLayer);
 }
 };
 
-function exportTable(format){
+function exportHotspotPerusahaan(){
 
-if(!rawData.length){
-alert("Data belum dimuat");
-return;
-}
+hasilPerusahaan={};
+totalHotspotAnalisis=0;
 
 const f=getSelectedFilters();
 
-const data=rawData.filter(r=>{
+rawData.forEach(r=>{
+
+const lat=parseFloat(r.Latitude);
+const lon=parseFloat(r.Longitude);
+
+if(isNaN(lat)||isNaN(lon)) return;
+
 const conf=r.Confidence_Level?.toLowerCase();
 const t=parseTanggal(r["Tanggal & Jam"]);
 const s=r.Sumber;
-return f.levels.includes(conf)&&f.tanggal.includes(t)&&f.sumber.includes(s);
+
+if(!f.levels.includes(conf)) return;
+if(!f.tanggal.includes(t)) return;
+if(!f.sumber.includes(s)) return;
+
+const point=[lon,lat];
+
+function cekLayer(layer){
+
+layer.eachLayer(poly=>{
+
+const inside = leafletPip.pointInLayer(point,layer,true);
+
+if(inside.length){
+
+let nama =
+poly.feature.properties.NAMA ||
+poly.feature.properties.NAMA_PERUSAHAAN ||
+poly.feature.properties.PERUSAHAAN ||
+"Tidak diketahui";
+
+if(!hasilPerusahaan[nama]){
+hasilPerusahaan[nama]=0;
+}
+
+hasilPerusahaan[nama]++;
+
+totalHotspotAnalisis++;
+
+}
+
 });
 
-if(format==="csv"||format==="xlsx"){
+}
 
-const ws=XLSX.utils.json_to_sheet(data);
-const wb=XLSX.utils.book_new();
+if(pbphLayer && map.hasLayer(pbphLayer)) cekLayer(pbphLayer);
+if(kebunLayer && map.hasLayer(kebunLayer)) cekLayer(kebunLayer);
+if(gambutLayer && map.hasLayer(gambutLayer)) cekLayer(gambutLayer);
 
-XLSX.utils.book_append_sheet(wb,ws,"Hotspot");
+});
 
-XLSX.writeFile(wb,"hotspot."+format);
+alert("Analisis selesai. Klik Cetak PDF.");
 
-}else{
+}
+
+function cetakPDFPerusahaan(){
+
+if(!Object.keys(hasilPerusahaan).length){
+
+alert("Belum ada hasil analisis");
+
+return;
+
+}
 
 const {jsPDF}=window.jspdf;
+
 const doc=new jsPDF();
 
+const tanggal=new Date().toLocaleDateString("id-ID");
+
+doc.setFontSize(14);
+doc.text("LAPORAN ANALISIS HOTSPOT PERUSAHAAN",105,15,{align:"center"});
+
+doc.setFontSize(10);
+doc.text("Direktorat Pengendalian Kebakaran Hutan dan Lahan",105,22,{align:"center"});
+
+doc.setFontSize(9);
+doc.text("Tanggal Analisis : "+tanggal,14,30);
+doc.text("Total Hotspot Teranalisis : "+totalHotspotAnalisis,14,36);
+
+let rows = Object.entries(hasilPerusahaan)
+.map(([nama,jumlah])=>({nama,jumlah}))
+.sort((a,b)=>b.jumlah-a.jumlah)
+.map((r,i)=>[
+i+1,
+r.nama,
+r.jumlah
+]);
+
 doc.autoTable({
-head:[["Tanggal","Provinsi","Lat","Lon"]],
-body:data.map(r=>[
-r["Tanggal & Jam"],
-r.Provinsi,
-r.Latitude,
-r.Longitude
-])
+
+startY:42,
+
+head:[["No","Nama Perusahaan","Jumlah Hotspot"]],
+
+body:rows,
+
+styles:{fontSize:8},
+
+headStyles:{fillColor:[60,60,60]}
+
 });
 
-doc.save("hotspot.pdf");
-
-}
-
-}
-
-function exportHotspotPerusahaan(){
-
-if(!pbphLayer && !kebunLayer){
-alert("Layer perusahaan belum dimuat");
-return;
-}
-
-alert("Fungsi analisis hotspot perusahaan tetap sama seperti versi Anda.");
+doc.save("laporan_hotspot_perusahaan.pdf");
 
 }
 
