@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Peta Hotspot</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;font-family:sans-serif;}
+body{display:flex;flex-direction:column;}
+
+.header{
+display:grid;
+grid-template-columns:auto 1fr auto;
+align-items:center;
+padding:6px 10px;
+background:#444;
+color:white;
+height:60px;
+}
+
+.logo{height:36px;}
+
+.title{
+text-align:center;
+font-size:13px;
+font-weight:bold;
+}
+
+.main{
+flex:1;
+position:relative;
+}
+
+#map{
+width:100%;
+height:100%;
+}
+
+.filters{
+position:absolute;
+top:10px;
+left:10px;
+background:white;
+padding:10px;
+border-radius:6px;
+font-size:13px;
+z-index:999;
+width:230px;
+max-height:85vh;
+overflow:auto;
+box-shadow:0 1px 6px rgba(0,0,0,0.2);
+}
+
+.filters h4{
+margin:10px 0 6px;
+font-size:14px;
+}
+
+.filters label{
+display:block;
+margin-bottom:4px;
+}
+
+.export-button{
+padding:6px 10px;
+background:#444;
+color:white;
+border:none;
+border-radius:4px;
+font-size:12px;
+cursor:pointer;
+width:100%;
+margin-bottom:6px;
+}
+
+#login-overlay{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.85);
+color:white;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+z-index:10000;
+}
+</style>
+</head>
+
+<body>
+
+<div id="login-overlay">
+<h2>Masukkan Password</h2>
+<input id="password-input" type="password"/>
+<button onclick="checkPassword()">Masuk</button>
+<div id="login-error" style="color:red;display:none;">Password salah</div>
+</div>
+
+<div class="header">
+<img src="logo-kiri.png" class="logo">
+<div class="title">
+DIREKTORAT PENGENDALIAN KEBAKARAN LAHAN<br>
+<small>Peta Hotspot Level Confidence Medium - High selama 3 hari</small>
+</div>
+<img src="logo-kanan.png" class="logo">
+</div>
+
+<div class="main">
+
+<div class="filters">
+
+<h4>Confidence</h4>
+<label><input type="checkbox" class="confidence-filter" value="medium" checked> Medium</label>
+<label><input type="checkbox" class="confidence-filter" value="high" checked> High</label>
+
+<h4>Tanggal</h4>
+<div id="tanggal-filter"></div>
+
+<h4>Sumber</h4>
+<div id="sumber-filter"></div>
+
+<h4>Layer</h4>
+<label><input type="checkbox" id="pbph-toggle"> PBPH</label>
+<label><input type="checkbox" id="kebun-toggle"> Kebun</label>
+<label><input type="checkbox" id="gambut-toggle"> Gambut</label>
+
+<h4>Analisis</h4>
+
+<button class="export-button" onclick="analisisPerusahaan()">Analisis Hotspot Perusahaan</button>
+
+<button class="export-button" onclick="cetakPDF()">Cetak PDF</button>
+
+</div>
+
+<div id="map"></div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-pip@latest/leaflet-pip.min.js"></script>
+
+<script>
+
+const map = L.map('map').setView([-2.5,117],5);
+
+L.tileLayer(
+'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+{maxZoom:18}
+).addTo(map);
+
+let pbphLayer;
+let kebunLayer;
+let gambutLayer;
+
+let rawData=[];
+let hasilPerusahaan={};
+
+const hotspotLayer = L.layerGroup().addTo(map);
+
+const url="https://opensheet.elk.sh/1Vce5YUId7cUZ29j8OEhdFSer26cszXgX3OSm5zoX1UI/Data%20Hotspot%20Nasional";
+
+async function loadGeoJSON(file,style){
+
+const r = await fetch(file);
+const g = await r.json();
+
+return L.geoJSON(g,{
+style:style
+});
+
+}
+
+async function loadLayers(){
+
+pbphLayer = await loadGeoJSON('PBPH.geojson',{color:"blue"});
+kebunLayer = await loadGeoJSON('kebun.geojson',{color:"green"});
+gambutLayer = await loadGeoJSON('gambut.geojson',{color:"brown"});
+
+}
+
+async function fetchHotspot(){
+
+const r=await fetch(url);
+
+rawData=await r.json();
+
+drawHotspot();
+
+}
+
+function drawHotspot(){
+
+hotspotLayer.clearLayers();
+
+rawData.forEach(r=>{
+
+const lat=parseFloat(r.Latitude);
+const lon=parseFloat(r.Longitude);
+
+L.circleMarker([lat,lon],{
+radius:5,
+fillColor:"red",
+color:"#000",
+weight:1,
+fillOpacity:0.6
+}).addTo(hotspotLayer);
+
+});
+
+}
+
+function analisisPerusahaan(){
+
+hasilPerusahaan={};
+
+rawData.forEach(r=>{
+
+const lat=parseFloat(r.Latitude);
+const lon=parseFloat(r.Longitude);
+
+const point=[lon,lat];
+
+function cekLayer(layer){
+
+layer.eachLayer(poly=>{
+
+const inside = leafletPip.pointInLayer(point,layer,true);
+
+if(inside.length){
+
+let nama=poly.feature.properties.NAMA || "Tidak diketahui";
+
+if(!hasilPerusahaan[nama]) hasilPerusahaan[nama]=0;
+
+hasilPerusahaan[nama]++;
+
+}
+
+});
+
+}
+
+if(pbphLayer && map.hasLayer(pbphLayer)) cekLayer(pbphLayer);
+if(kebunLayer && map.hasLayer(kebunLayer)) cekLayer(kebunLayer);
+if(gambutLayer && map.hasLayer(gambutLayer)) cekLayer(gambutLayer);
+
+});
+
+alert("Analisis selesai");
+
+}
+
+function cetakPDF(){
+
+const {jsPDF}=window.jspdf;
+
+const doc=new jsPDF();
+
+doc.text("Hotspot Perusahaan",105,15,{align:"center"});
+
+let rows=Object.entries(hasilPerusahaan)
+.map((r,i)=>[i+1,r[0],r[1]]);
+
+doc.autoTable({
+startY:25,
+head:[["No","Perusahaan","Hotspot"]],
+body:rows
+});
+
+doc.save("hotspot_perusahaan.pdf");
+
+}
+
+document.getElementById("pbph-toggle").onchange=e=>{
+if(e.target.checked) pbphLayer.addTo(map); else map.removeLayer(pbphLayer);
+};
+
+document.getElementById("kebun-toggle").onchange=e=>{
+if(e.target.checked) kebunLayer.addTo(map); else map.removeLayer(kebunLayer);
+};
+
+document.getElementById("gambut-toggle").onchange=e=>{
+if(e.target.checked) gambutLayer.addTo(map); else map.removeLayer(gambutLayer);
+};
+
+function checkPassword(){
+
+const pw=document.getElementById("password-input").value;
+
+if(pw==="karla"){
+
+document.getElementById("login-overlay").style.display="none";
+
+init();
+
+}else{
+
+document.getElementById("login-error").style.display="block";
+
+}
+
+}
+
+async function init(){
+
+await loadLayers();
+await fetchHotspot();
+
+}
+
+</script>
+
+</body>
+</html>
